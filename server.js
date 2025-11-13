@@ -10,6 +10,9 @@ const AdmZip = require('adm-zip');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Track server start time for uptime calculation
+const SERVER_START_TIME = Date.now();
+
 // Trust proxy - Required for Render deployment
 app.set('trust proxy', 1);
 
@@ -159,6 +162,51 @@ function findIndexHtml(directory) {
   
   return null;
 }
+
+// Helper: Format uptime
+function formatUptime(milliseconds) {
+  const seconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) {
+    return `${days}d ${hours % 24}h ${minutes % 60}m ${seconds % 60}s`;
+  } else if (hours > 0) {
+    return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`;
+  } else {
+    return `${seconds}s`;
+  }
+}
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const uptime = Date.now() - SERVER_START_TIME;
+  const totalSites = db.prepare('SELECT COUNT(*) as count FROM sites WHERE status = ?').get('active').count;
+  const totalStorage = db.prepare('SELECT SUM(size_bytes) as total FROM sites WHERE status = ?').get('active').total || 0;
+
+  res.json({
+    status: 'ok',
+    uptime: formatUptime(uptime),
+    uptimeMs: uptime,
+    timestamp: new Date().toISOString(),
+    server: {
+      platform: process.platform,
+      nodeVersion: process.version,
+      memory: {
+        used: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
+        total: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`
+      }
+    },
+    database: {
+      totalSites,
+      totalStorage: `${(totalStorage / 1024 / 1024).toFixed(2)} MB`,
+      storageBytes: totalStorage
+    }
+  });
+});
 
 // API: Upload site (supports single file, multiple files, or ZIP)
 app.post('/api/upload', (req, res) => {
@@ -455,4 +503,5 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Public URL: http://localhost:${PORT}`);
   console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
 });
