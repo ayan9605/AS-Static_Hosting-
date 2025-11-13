@@ -43,13 +43,14 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Increase payload limit for multiple files
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Rate limiting for API routes
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -105,7 +106,6 @@ function deleteFolderRecursive(folderPath) {
 function moveFolder(source, destination) {
   if (!fs.existsSync(source)) return;
   
-  // If destination exists, delete it first
   if (fs.existsSync(destination)) {
     deleteFolderRecursive(destination);
   }
@@ -124,17 +124,15 @@ function isForbiddenExtension(filename) {
   return FORBIDDEN_EXTENSIONS.includes(ext);
 }
 
-// API: Upload site
+// API: Upload site (supports single file, multiple files, or ZIP)
 app.post('/api/upload', (req, res) => {
   try {
-    if (!req.body.siteName || !req.body.fileData || !req.body.fileName) {
-      return res.status(400).json({ ok: false, error: 'Missing required fields: siteName, fileName, fileData' });
+    if (!req.body.siteName) {
+      return res.status(400).json({ ok: false, error: 'Missing siteName' });
     }
 
     const siteName = req.body.siteName.trim();
-    const fileName = req.body.fileName.trim();
-    const fileData = req.body.fileData; // Base64 encoded
-
+    
     // Sanitize site name to create slug
     const slug = sanitize(siteName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''));
     
@@ -155,34 +153,49 @@ app.post('/api/upload', (req, res) => {
       fs.mkdirSync(siteDir, { recursive: true });
     }
 
-    const ext = path.extname(fileName).toLowerCase();
+    // Support both single file and multiple files
+    const files = req.body.files; // Array of {fileName, fileData}
     
-    // Decode base64 file data
-    const buffer = Buffer.from(fileData, 'base64');
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ ok: false, error: 'No files provided' });
+    }
 
-    if (ext === '.zip') {
-      // Extract ZIP file
-      const zip = new AdmZip(buffer);
-      const zipEntries = zip.getEntries();
-
-      // Validate ZIP contents
-      for (const entry of zipEntries) {
-        if (isForbiddenExtension(entry.entryName)) {
-          deleteFolderRecursive(siteDir);
-          return res.status(400).json({ ok: false, error: `Forbidden file type detected: ${entry.entryName}` });
-        }
+    // Process each file
+    for (const fileObj of files) {
+      const { fileName, fileData } = fileObj;
+      
+      if (!fileName || !fileData) {
+        deleteFolderRecursive(siteDir);
+        return res.status(400).json({ ok: false, error: 'Invalid file data' });
       }
 
-      // Extract all files
-      zip.extractAllTo(siteDir, true);
-    } else if (isAllowedExtension(fileName)) {
-      // Save single file
-      const sanitizedFileName = sanitize(fileName);
-      const filePath = path.join(siteDir, sanitizedFileName);
-      fs.writeFileSync(filePath, buffer);
-    } else {
-      deleteFolderRecursive(siteDir);
-      return res.status(400).json({ ok: false, error: 'File type not allowed' });
+      const ext = path.extname(fileName).toLowerCase();
+      const buffer = Buffer.from(fileData, 'base64');
+
+      if (ext === '.zip') {
+        // Extract ZIP file
+        const zip = new AdmZip(buffer);
+        const zipEntries = zip.getEntries();
+
+        // Validate ZIP contents
+        for (const entry of zipEntries) {
+          if (isForbiddenExtension(entry.entryName)) {
+            deleteFolderRecursive(siteDir);
+            return res.status(400).json({ ok: false, error: `Forbidden file type detected: ${entry.entryName}` });
+          }
+        }
+
+        // Extract all files
+        zip.extractAllTo(siteDir, true);
+      } else if (isAllowedExtension(fileName)) {
+        // Save single file
+        const sanitizedFileName = sanitize(fileName);
+        const filePath = path.join(siteDir, sanitizedFileName);
+        fs.writeFileSync(filePath, buffer);
+      } else {
+        deleteFolderRecursive(siteDir);
+        return res.status(400).json({ ok: false, error: `File type not allowed: ${fileName}` });
+      }
     }
 
     // Calculate folder size
@@ -192,7 +205,6 @@ app.post('/api/upload', (req, res) => {
     const insert = db.prepare('INSERT INTO sites (name, slug, size_bytes, status) VALUES (?, ?, ?, ?)');
     insert.run(siteName, slug, sizeBytes, 'active');
 
-    // Changed to /view/ instead of /view.php
     const url = `${req.protocol}://${req.get('host')}/view/${slug}`;
 
     res.json({
@@ -208,7 +220,7 @@ app.post('/api/upload', (req, res) => {
   }
 });
 
-// View site - Handler function
+// View site handler
 function handleSiteView(req, res) {
   const slug = req.params.slug || req.query.site;
   
@@ -244,7 +256,7 @@ function handleSiteView(req, res) {
   res.send(`<h1>Site: ${site.name}</h1><ul>${files.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}</ul>`);
 }
 
-// View site routes - Support both /view.php?site=slug and /view/:slug
+// View site routes - both /view.php?site=slug and /view/:slug work
 app.get('/view.php', handleSiteView);
 app.get('/view/:slug', handleSiteView);
 
@@ -272,7 +284,6 @@ app.post('/api/admin/site/:slug/delete', (req, res) => {
       return res.status(404).json({ ok: false, error: 'Site not found' });
     }
 
-    // Move folder to .deleted
     const sourceDir = path.join(SITES_DIR, sanitizedSlug);
     const destDir = path.join(DELETED_DIR, sanitizedSlug);
 
@@ -280,7 +291,6 @@ app.post('/api/admin/site/:slug/delete', (req, res) => {
       moveFolder(sourceDir, destDir);
     }
 
-    // Update database
     db.prepare('UPDATE sites SET status = ? WHERE slug = ?').run('deleted', sanitizedSlug);
 
     res.json({ ok: true, message: 'Site deleted successfully' });
@@ -300,7 +310,6 @@ app.post('/api/admin/site/:slug/restore', (req, res) => {
       return res.status(404).json({ ok: false, error: 'Site not found' });
     }
 
-    // Move folder back from .deleted
     const sourceDir = path.join(DELETED_DIR, sanitizedSlug);
     const destDir = path.join(SITES_DIR, sanitizedSlug);
 
@@ -308,7 +317,6 @@ app.post('/api/admin/site/:slug/restore', (req, res) => {
       moveFolder(sourceDir, destDir);
     }
 
-    // Update database
     db.prepare('UPDATE sites SET status = ? WHERE slug = ?').run('active', sanitizedSlug);
 
     res.json({ ok: true, message: 'Site restored successfully' });
@@ -351,7 +359,6 @@ app.get('/api/admin/site/:slug/download', (req, res) => {
       return res.status(404).json({ ok: false, error: 'Site directory not found' });
     }
 
-    // Create ZIP
     const zip = new AdmZip();
     zip.addLocalFolder(siteDir);
     const zipBuffer = zip.toBuffer();
