@@ -10,7 +10,7 @@
   <div class="container">
     <header>
       <h1>🚀 Static Site Hosting</h1>
-      <p class="subtitle">Upload your HTML, CSS, JS, or ZIP files and host them instantly</p>
+      <p class="subtitle">Upload your HTML, CSS, JS, ZIP or multiple files and host them instantly</p>
     </header>
 
     <div class="stats-bar">
@@ -33,8 +33,11 @@
         </div>
 
         <div class="form-group">
-          <label for="fileInput">Choose File (.zip, .html, .css, .js, .png, .jpg, .svg)</label>
-          <input type="file" id="fileInput" name="file" accept=".zip,.html,.css,.js,.png,.jpg,.jpeg,.svg,.gif,.webp,.ico" required>
+          <label for="fileInput">Choose Files (Single ZIP or Multiple Files)</label>
+          <input type="file" id="fileInput" name="files" accept=".zip,.html,.css,.js,.png,.jpg,.jpeg,.svg,.gif,.webp,.ico,.txt,.json" multiple required>
+          <small style="color: #666; display: block; margin-top: 5px;">
+            💡 You can upload a ZIP file OR select multiple files (index.html, styles.css, script.js, etc.)
+          </small>
         </div>
 
         <button type="submit" class="btn btn-primary" id="uploadBtn">
@@ -70,16 +73,26 @@
       }
     }
 
+    // Convert file to base64
+    function convertToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = error => reject(error);
+      });
+    }
+
     // Upload form handler
     document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       e.preventDefault();
 
       const siteName = document.getElementById('siteName').value.trim();
       const fileInput = document.getElementById('fileInput');
-      const file = fileInput.files[0];
+      const selectedFiles = fileInput.files;
 
-      if (!file) {
-        alert('Please select a file');
+      if (selectedFiles.length === 0) {
+        alert('Please select at least one file');
         return;
       }
 
@@ -89,50 +102,51 @@
       document.getElementById('uploadBtn').disabled = true;
 
       try {
-        // Read file as base64
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const base64Data = event.target.result.split(',')[1];
-
-          const response = await fetch('/api/upload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              siteName,
-              fileName: file.name,
-              fileData: base64Data
-            })
+        // Convert all files to base64
+        const filesArray = [];
+        
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const file = selectedFiles[i];
+          const base64Data = await convertToBase64(file);
+          filesArray.push({
+            fileName: file.name,
+            fileData: base64Data
           });
+        }
 
-          const result = await response.json();
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            siteName,
+            files: filesArray
+          })
+        });
 
-          // Hide loading
-          document.getElementById('uploadBtnText').style.display = 'inline';
-          document.getElementById('uploadSpinner').style.display = 'none';
-          document.getElementById('uploadBtn').disabled = false;
+        const result = await response.json();
 
-          const resultDiv = document.getElementById('uploadResult');
-          resultDiv.style.display = 'block';
+        // Hide loading
+        document.getElementById('uploadBtnText').style.display = 'inline';
+        document.getElementById('uploadSpinner').style.display = 'none';
+        document.getElementById('uploadBtn').disabled = false;
 
-          if (result.ok) {
-            resultDiv.className = 'result success';
-            resultDiv.innerHTML = `
-              <strong>✅ Success!</strong><br>
-              Your site is live at:<br>
-              <a href="${result.url}" target="_blank" class="link">${result.url}</a><br>
-              <small>Slug: ${result.slug}</small>
-            `;
-            // Reset form
-            document.getElementById('uploadForm').reset();
-            // Reload stats
-            loadStats();
-          } else {
-            resultDiv.className = 'result error';
-            resultDiv.innerHTML = `<strong>❌ Error:</strong> ${result.error}`;
-          }
-        };
+        const resultDiv = document.getElementById('uploadResult');
+        resultDiv.style.display = 'block';
 
-        reader.readAsDataURL(file);
+        if (result.ok) {
+          resultDiv.className = 'result success';
+          resultDiv.innerHTML = `
+            <strong>✅ Success!</strong><br>
+            Your site is live at:<br>
+            <a href="${result.url}" target="_blank" class="link">${result.url}</a><br>
+            <small>Slug: ${result.slug} | Files uploaded: ${filesArray.length}</small>
+          `;
+          document.getElementById('uploadForm').reset();
+          loadStats();
+        } else {
+          resultDiv.className = 'result error';
+          resultDiv.innerHTML = `<strong>❌ Error:</strong> ${result.error}`;
+        }
 
       } catch (error) {
         document.getElementById('uploadBtnText').style.display = 'inline';
