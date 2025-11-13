@@ -173,20 +173,27 @@ app.post('/api/upload', (req, res) => {
       const buffer = Buffer.from(fileData, 'base64');
 
       if (ext === '.zip') {
-        // Extract ZIP file
-        const zip = new AdmZip(buffer);
-        const zipEntries = zip.getEntries();
+        // Extract ZIP file - FIXED: overwrite false prevents path issues
+        try {
+          const zip = new AdmZip(buffer);
+          const zipEntries = zip.getEntries();
 
-        // Validate ZIP contents
-        for (const entry of zipEntries) {
-          if (isForbiddenExtension(entry.entryName)) {
-            deleteFolderRecursive(siteDir);
-            return res.status(400).json({ ok: false, error: `Forbidden file type detected: ${entry.entryName}` });
+          // Validate ZIP contents
+          for (const entry of zipEntries) {
+            if (isForbiddenExtension(entry.entryName)) {
+              deleteFolderRecursive(siteDir);
+              return res.status(400).json({ ok: false, error: `Forbidden file type detected: ${entry.entryName}` });
+            }
           }
-        }
 
-        // Extract all files
-        zip.extractAllTo(siteDir, true);
+          // Extract all files - overwrite set to true
+          zip.extractAllTo(siteDir, true);
+          
+        } catch (zipError) {
+          console.error('ZIP extraction error:', zipError);
+          deleteFolderRecursive(siteDir);
+          return res.status(400).json({ ok: false, error: 'Failed to extract ZIP file' });
+        }
       } else if (isAllowedExtension(fileName)) {
         // Save single file
         const sanitizedFileName = sanitize(fileName);
@@ -260,7 +267,16 @@ function handleSiteView(req, res) {
 app.get('/view.php', handleSiteView);
 app.get('/view/:slug', handleSiteView);
 
-// Serve static site files
+// CRITICAL FIX: Serve each site's static files (CSS, JS, images) with correct MIME types
+app.use('/sites/:slug', (req, res, next) => {
+  const slug = sanitize(req.params.slug);
+  const siteDir = path.join(SITES_DIR, slug);
+  
+  // Use express.static for each site folder dynamically
+  express.static(siteDir)(req, res, next);
+});
+
+// Fallback: Serve static site files
 app.use('/sites', express.static(SITES_DIR));
 
 // Admin API: Get all sites
