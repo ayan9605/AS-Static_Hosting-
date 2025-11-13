@@ -192,7 +192,8 @@ app.post('/api/upload', (req, res) => {
     const insert = db.prepare('INSERT INTO sites (name, slug, size_bytes, status) VALUES (?, ?, ?, ?)');
     insert.run(siteName, slug, sizeBytes, 'active');
 
-    const url = `${req.protocol}://${req.get('host')}/view.php?site=${slug}`;
+    // Changed to /view/ instead of /view.php
+    const url = `${req.protocol}://${req.get('host')}/view/${slug}`;
 
     res.json({
       ok: true,
@@ -207,9 +208,9 @@ app.post('/api/upload', (req, res) => {
   }
 });
 
-// View site
-app.get('/view.php', (req, res) => {
-  const slug = req.query.site;
+// View site - Handler function
+function handleSiteView(req, res) {
+  const slug = req.params.slug || req.query.site;
   
   if (!slug) {
     return res.status(400).send('Missing site parameter');
@@ -241,7 +242,11 @@ app.get('/view.php', (req, res) => {
   }
 
   res.send(`<h1>Site: ${site.name}</h1><ul>${files.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}</ul>`);
-});
+}
+
+// View site routes - Support both /view.php?site=slug and /view/:slug
+app.get('/view.php', handleSiteView);
+app.get('/view/:slug', handleSiteView);
 
 // Serve static site files
 app.use('/sites', express.static(SITES_DIR));
