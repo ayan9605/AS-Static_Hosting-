@@ -62,7 +62,7 @@
                     <td>${new Date(site.created_at).toLocaleDateString()}</td>
                     <td class="action-buttons">
                       ${site.status === 'active' ? `
-                        <a href="/view.php?site=${site.slug}" target="_blank" class="btn-sm btn-view">View</a>
+                        <a href="/view/${site.slug}" target="_blank" class="btn-sm btn-view">View</a>
                         <button onclick="deleteSite('${site.slug}')" class="btn-sm btn-delete">Delete</button>
                       ` : `
                         <button onclick="restoreSite('${site.slug}')" class="btn-sm btn-restore">Restore</button>
