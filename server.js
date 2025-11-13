@@ -113,6 +113,25 @@ function moveFolder(source, destination) {
   fs.renameSync(source, destination);
 }
 
+// Helper: Copy folder recursively
+function copyFolderRecursive(source, destination) {
+  if (!fs.existsSync(destination)) {
+    fs.mkdirSync(destination, { recursive: true });
+  }
+
+  const files = fs.readdirSync(source);
+  for (const file of files) {
+    const srcPath = path.join(source, file);
+    const destPath = path.join(destination, file);
+    
+    if (fs.lstatSync(srcPath).isDirectory()) {
+      copyFolderRecursive(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
 // Helper: Validate file extension
 function isAllowedExtension(filename) {
   const ext = path.extname(filename).toLowerCase();
@@ -122,6 +141,23 @@ function isAllowedExtension(filename) {
 function isForbiddenExtension(filename) {
   const ext = path.extname(filename).toLowerCase();
   return FORBIDDEN_EXTENSIONS.includes(ext);
+}
+
+// Helper: Find index.html recursively in nested folders
+function findIndexHtml(directory) {
+  const items = fs.readdirSync(directory);
+  
+  // Check current directory
+  if (items.includes('index.html')) {
+    return path.join(directory, 'index.html');
+  }
+  
+  // If only one item and it's a directory, check inside
+  if (items.length === 1 && fs.lstatSync(path.join(directory, items[0])).isDirectory()) {
+    return findIndexHtml(path.join(directory, items[0]));
+  }
+  
+  return null;
 }
 
 // API: Upload site (supports single file, multiple files, or ZIP)
@@ -186,8 +222,23 @@ app.post('/api/upload', (req, res) => {
             }
           }
 
-          // Extract all files
-          zip.extractAllTo(siteDir, true);
+          // Extract all files to temp directory first
+          const tempDir = path.join(siteDir, '_temp_extract');
+          zip.extractAllTo(tempDir, true);
+          
+          // Check if extracted to a single subfolder
+          const extractedItems = fs.readdirSync(tempDir);
+          
+          if (extractedItems.length === 1 && fs.lstatSync(path.join(tempDir, extractedItems[0])).isDirectory()) {
+            // Move contents of subfolder to main directory
+            const subfolderPath = path.join(tempDir, extractedItems[0]);
+            copyFolderRecursive(subfolderPath, siteDir);
+            deleteFolderRecursive(tempDir);
+          } else {
+            // Move all items directly
+            copyFolderRecursive(tempDir, siteDir);
+            deleteFolderRecursive(tempDir);
+          }
           
         } catch (zipError) {
           console.error('ZIP extraction error:', zipError);
@@ -227,92 +278,53 @@ app.post('/api/upload', (req, res) => {
   }
 });
 
-// View site handler - ENHANCED WITH DETAILED LOGGING
+// View site handler - FIXED to handle nested folders
 function handleSiteView(req, res) {
   const slug = req.params.slug || req.query.site;
   
-  console.log('=== VIEW REQUEST START ===');
-  console.log('Raw slug:', slug);
-  
   if (!slug) {
-    console.log('ERROR: No slug provided');
     return res.status(400).send('Missing site parameter');
   }
 
   const sanitizedSlug = sanitize(slug);
   const siteDir = path.join(SITES_DIR, sanitizedSlug);
 
-  console.log('Sanitized slug:', sanitizedSlug);
-  console.log('Site directory:', siteDir);
-  console.log('Directory exists:', fs.existsSync(siteDir));
-
   if (!fs.existsSync(siteDir)) {
-    console.log('ERROR: Directory does not exist');
     return res.status(404).send('Site not found');
   }
 
-  // List all files in directory
-  const allFiles = fs.readdirSync(siteDir);
-  console.log('Files in directory:', allFiles);
-
-  // Check if site is active in database
+  // Check if site is active
   const site = db.prepare('SELECT * FROM sites WHERE slug = ? AND status = ?').get(sanitizedSlug, 'active');
-  console.log('Database query result:', site);
-  
   if (!site) {
-    console.log('ERROR: Site not found in database or not active');
-    
-    // Debug: Check if site exists with any status
-    const anySite = db.prepare('SELECT * FROM sites WHERE slug = ?').get(sanitizedSlug);
-    console.log('Site with any status:', anySite);
-    
-    return res.status(404).send(`
-      <h1>Site Not Found</h1>
-      <p>The site "${sanitizedSlug}" exists in the file system but not in the database.</p>
-      <p>Files found: ${allFiles.join(', ')}</p>
-      <p>Please re-upload this site or check the admin panel.</p>
-    `);
+    return res.status(404).send('Site not found or deleted');
   }
 
-  // Serve index.html by default
-  const indexPath = path.join(siteDir, 'index.html');
-  console.log('Looking for index.html at:', indexPath);
-  console.log('index.html exists:', fs.existsSync(indexPath));
+  // Try to find index.html (even in nested folders)
+  const indexPath = findIndexHtml(siteDir);
   
-  if (fs.existsSync(indexPath)) {
-    console.log('SUCCESS: Sending index.html');
-    return res.sendFile(indexPath, (err) => {
-      if (err) {
-        console.error('ERROR sending file:', err);
-        res.status(500).send('Error loading site');
-      }
-    });
+  if (indexPath && fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
   }
 
-  // If no index.html, check for single file
-  if (allFiles.length === 1) {
-    const singleFilePath = path.join(siteDir, allFiles[0]);
-    console.log('SUCCESS: Sending single file:', allFiles[0]);
-    return res.sendFile(singleFilePath, (err) => {
-      if (err) {
-        console.error('ERROR sending file:', err);
-        res.status(500).send('Error loading site');
-      }
-    });
+  // If no index.html found, list files
+  const files = fs.readdirSync(siteDir);
+  
+  // If single item and it's a directory, serve its contents
+  if (files.length === 1 && fs.lstatSync(path.join(siteDir, files[0])).isDirectory()) {
+    const subDir = path.join(siteDir, files[0]);
+    return res.redirect(`/sites/${sanitizedSlug}/${files[0]}/`);
   }
 
-  // List all files as HTML
-  console.log('SUCCESS: Showing file list');
   res.send(`
     <h1>Site: ${site.name}</h1>
     <p>Files in this site:</p>
     <ul>
-      ${allFiles.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}
+      ${files.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}
     </ul>
   `);
 }
 
-// Debug route to check database
+// Debug route
 app.get('/debug/sites', (req, res) => {
   const allSites = db.prepare('SELECT * FROM sites').all();
   res.json({ 
@@ -322,8 +334,7 @@ app.get('/debug/sites', (req, res) => {
   });
 });
 
-// CRITICAL: Define dynamic routes BEFORE static middleware
-// View site routes - both /view.php?site=slug and /view/:slug work
+// View site routes
 app.get('/view.php', handleSiteView);
 app.get('/view/:slug', handleSiteView);
 
@@ -436,8 +447,7 @@ app.get('/api/admin/site/:slug/download', (req, res) => {
   }
 });
 
-// IMPORTANT: Static file serving comes AFTER all dynamic routes
-// Serve static files from each site's folder
+// Serve static files
 app.use('/sites', express.static(SITES_DIR));
 
 // Start server
