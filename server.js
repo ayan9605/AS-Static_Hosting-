@@ -10,6 +10,9 @@ const AdmZip = require('adm-zip');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy - Required for Render deployment
+app.set('trust proxy', 1);
+
 // Ensure required directories exist
 const SITES_DIR = path.join(__dirname, 'sites');
 const DELETED_DIR = path.join(SITES_DIR, '.deleted');
