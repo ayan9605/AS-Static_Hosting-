@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Static Site Hosting Platform</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🚀 Static Site Hosting</h1>
+      <p class="subtitle">Upload your HTML, CSS, JS, or ZIP files and host them instantly</p>
+    </header>
+
+    <div class="stats-bar">
+      <div class="stat-item">
+        <span class="stat-label">Total Sites:</span>
+        <span class="stat-value" id="totalSites">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Total Storage:</span>
+        <span class="stat-value" id="totalStorage">0 MB</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Upload Your Site</h2>
+      <form id="uploadForm">
+        <div class="form-group">
+          <label for="siteName">Site Name</label>
+          <input type="text" id="siteName" name="siteName" placeholder="My Awesome Website" required>
+        </div>
+
+        <div class="form-group">
+          <label for="fileInput">Choose File (.zip, .html, .css, .js, .png, .jpg, .svg)</label>
+          <input type="file" id="fileInput" name="file" accept=".zip,.html,.css,.js,.png,.jpg,.jpeg,.svg,.gif,.webp,.ico" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="uploadBtn">
+          <span id="uploadBtnText">Upload Site</span>
+          <span id="uploadSpinner" class="spinner" style="display: none;"></span>
+        </button>
+      </form>
+
+      <div id="uploadResult" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="actions">
+      <a href="/admin.html" class="btn btn-secondary">Go to Admin Panel</a>
+    </div>
+
+    <footer>
+      <p>Developed by Ayan Sayyad</p>
+    </footer>
+  </div>
+
+  <script>
+    // Fetch and display stats
+    async function loadStats() {
+      try {
+        const response = await fetch('/api/admin/usage');
+        const data = await response.json();
+        if (data.ok) {
+          document.getElementById('totalSites').textContent = data.totalSites;
+          document.getElementById('totalStorage').textContent = data.totalStorageFormatted;
+        }
+      } catch (error) {
+        console.error('Error loading stats:', error);
+      }
+    }
+
+    // Upload form handler
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const siteName = document.getElementById('siteName').value.trim();
+      const fileInput = document.getElementById('fileInput');
+      const file = fileInput.files[0];
+
+      if (!file) {
+        alert('Please select a file');
+        return;
+      }
+
+      // Show loading
+      document.getElementById('uploadBtnText').style.display = 'none';
+      document.getElementById('uploadSpinner').style.display = 'inline-block';
+      document.getElementById('uploadBtn').disabled = true;
+
+      try {
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const base64Data = event.target.result.split(',')[1];
+
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              siteName,
+              fileName: file.name,
+              fileData: base64Data
+            })
+          });
+
+          const result = await response.json();
+
+          // Hide loading
+          document.getElementById('uploadBtnText').style.display = 'inline';
+          document.getElementById('uploadSpinner').style.display = 'none';
+          document.getElementById('uploadBtn').disabled = false;
+
+          const resultDiv = document.getElementById('uploadResult');
+          resultDiv.style.display = 'block';
+
+          if (result.ok) {
+            resultDiv.className = 'result success';
+            resultDiv.innerHTML = `
+              <strong>✅ Success!</strong><br>
+              Your site is live at:<br>
+              <a href="${result.url}" target="_blank" class="link">${result.url}</a><br>
+              <small>Slug: ${result.slug}</small>
+            `;
+            // Reset form
+            document.getElementById('uploadForm').reset();
+            // Reload stats
+            loadStats();
+          } else {
+            resultDiv.className = 'result error';
+            resultDiv.innerHTML = `<strong>❌ Error:</strong> ${result.error}`;
+          }
+        };
+
+        reader.readAsDataURL(file);
+
+      } catch (error) {
+        document.getElementById('uploadBtnText').style.display = 'inline';
+        document.getElementById('uploadSpinner').style.display = 'none';
+        document.getElementById('uploadBtn').disabled = false;
+
+        const resultDiv = document.getElementById('uploadResult');
+        resultDiv.style.display = 'block';
+        resultDiv.className = 'result error';
+        resultDiv.innerHTML = `<strong>❌ Error:</strong> ${error.message}`;
+      }
+    });
+
+    // Load stats on page load
+    loadStats();
+  </script>
+</body>
+</html>
