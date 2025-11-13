@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel - Static Site Hosting</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>⚙️ Admin Panel</h1>
+      <p class="subtitle">Manage all hosted sites</p>
+    </header>
+
+    <div class="actions">
+      <a href="/" class="btn btn-secondary">← Back to Home</a>
+      <button class="btn btn-primary" onclick="loadSites()">🔄 Refresh</button>
+    </div>
+
+    <div class="card">
+      <h2>All Sites</h2>
+      <div id="sitesContainer">
+        <p class="loading">Loading sites...</p>
+      </div>
+    </div>
+
+    <footer>
+      <p>Developed by Ayan Sayyad</p>
+    </footer>
+  </div>
+
+  <script>
+    async function loadSites() {
+      const container = document.getElementById('sitesContainer');
+      container.innerHTML = '<p class="loading">Loading sites...</p>';
+
+      try {
+        const response = await fetch('/api/admin/sites');
+        const data = await response.json();
+
+        if (data.ok && data.sites.length > 0) {
+          container.innerHTML = `
+            <table class="sites-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Slug</th>
+                  <th>Size</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.sites.map(site => `
+                  <tr>
+                    <td>${site.name}</td>
+                    <td><code>${site.slug}</code></td>
+                    <td>${(site.size_bytes / 1024).toFixed(2)} KB</td>
+                    <td><span class="badge badge-${site.status}">${site.status}</span></td>
+                    <td>${new Date(site.created_at).toLocaleDateString()}</td>
+                    <td class="action-buttons">
+                      ${site.status === 'active' ? `
+                        <a href="/view.php?site=${site.slug}" target="_blank" class="btn-sm btn-view">View</a>
+                        <button onclick="deleteSite('${site.slug}')" class="btn-sm btn-delete">Delete</button>
+                      ` : `
+                        <button onclick="restoreSite('${site.slug}')" class="btn-sm btn-restore">Restore</button>
+                      `}
+                      <button onclick="downloadSite('${site.slug}')" class="btn-sm btn-download">Download</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+        } else {
+          container.innerHTML = '<p class="empty">No sites found. Upload your first site!</p>';
+        }
+      } catch (error) {
+        container.innerHTML = `<p class="error">Error loading sites: ${error.message}</p>`;
+      }
+    }
+
+    async function deleteSite(slug) {
+      if (!confirm(`Are you sure you want to delete "${slug}"?`)) return;
+
+      try {
+        const response = await fetch(`/api/admin/site/${slug}/delete`, { method: 'POST' });
+        const data = await response.json();
+
+        if (data.ok) {
+          alert('Site deleted successfully');
+          loadSites();
+        } else {
+          alert('Error: ' + data.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    async function restoreSite(slug) {
+      if (!confirm(`Restore site "${slug}"?`)) return;
+
+      try {
+        const response = await fetch(`/api/admin/site/${slug}/restore`, { method: 'POST' });
+        const data = await response.json();
+
+        if (data.ok) {
+          alert('Site restored successfully');
+          loadSites();
+        } else {
+          alert('Error: ' + data.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    function downloadSite(slug) {
+      window.location.href = `/api/admin/site/${slug}/download`;
+    }
+
+    // Load sites on page load
+    loadSites();
+  </script>
+</body>
+</html>
