@@ -227,45 +227,100 @@ app.post('/api/upload', (req, res) => {
   }
 });
 
-// View site handler
+// View site handler - ENHANCED WITH DETAILED LOGGING
 function handleSiteView(req, res) {
   const slug = req.params.slug || req.query.site;
   
+  console.log('=== VIEW REQUEST START ===');
+  console.log('Raw slug:', slug);
+  
   if (!slug) {
+    console.log('ERROR: No slug provided');
     return res.status(400).send('Missing site parameter');
   }
 
   const sanitizedSlug = sanitize(slug);
   const siteDir = path.join(SITES_DIR, sanitizedSlug);
 
-  console.log('Viewing site:', sanitizedSlug);
+  console.log('Sanitized slug:', sanitizedSlug);
   console.log('Site directory:', siteDir);
   console.log('Directory exists:', fs.existsSync(siteDir));
 
   if (!fs.existsSync(siteDir)) {
+    console.log('ERROR: Directory does not exist');
     return res.status(404).send('Site not found');
   }
 
-  // Check if site is active
+  // List all files in directory
+  const allFiles = fs.readdirSync(siteDir);
+  console.log('Files in directory:', allFiles);
+
+  // Check if site is active in database
   const site = db.prepare('SELECT * FROM sites WHERE slug = ? AND status = ?').get(sanitizedSlug, 'active');
+  console.log('Database query result:', site);
+  
   if (!site) {
-    return res.status(404).send('Site not found or deleted');
+    console.log('ERROR: Site not found in database or not active');
+    
+    // Debug: Check if site exists with any status
+    const anySite = db.prepare('SELECT * FROM sites WHERE slug = ?').get(sanitizedSlug);
+    console.log('Site with any status:', anySite);
+    
+    return res.status(404).send(`
+      <h1>Site Not Found</h1>
+      <p>The site "${sanitizedSlug}" exists in the file system but not in the database.</p>
+      <p>Files found: ${allFiles.join(', ')}</p>
+      <p>Please re-upload this site or check the admin panel.</p>
+    `);
   }
 
   // Serve index.html by default
   const indexPath = path.join(siteDir, 'index.html');
+  console.log('Looking for index.html at:', indexPath);
+  console.log('index.html exists:', fs.existsSync(indexPath));
+  
   if (fs.existsSync(indexPath)) {
-    return res.sendFile(indexPath);
+    console.log('SUCCESS: Sending index.html');
+    return res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('ERROR sending file:', err);
+        res.status(500).send('Error loading site');
+      }
+    });
   }
 
-  // If no index.html, list files
-  const files = fs.readdirSync(siteDir);
-  if (files.length === 1) {
-    return res.sendFile(path.join(siteDir, files[0]));
+  // If no index.html, check for single file
+  if (allFiles.length === 1) {
+    const singleFilePath = path.join(siteDir, allFiles[0]);
+    console.log('SUCCESS: Sending single file:', allFiles[0]);
+    return res.sendFile(singleFilePath, (err) => {
+      if (err) {
+        console.error('ERROR sending file:', err);
+        res.status(500).send('Error loading site');
+      }
+    });
   }
 
-  res.send(`<h1>Site: ${site.name}</h1><ul>${files.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}</ul>`);
+  // List all files as HTML
+  console.log('SUCCESS: Showing file list');
+  res.send(`
+    <h1>Site: ${site.name}</h1>
+    <p>Files in this site:</p>
+    <ul>
+      ${allFiles.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}
+    </ul>
+  `);
 }
+
+// Debug route to check database
+app.get('/debug/sites', (req, res) => {
+  const allSites = db.prepare('SELECT * FROM sites').all();
+  res.json({ 
+    ok: true, 
+    totalSites: allSites.length,
+    sites: allSites 
+  });
+});
 
 // CRITICAL: Define dynamic routes BEFORE static middleware
 // View site routes - both /view.php?site=slug and /view/:slug work
