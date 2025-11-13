@@ -57,7 +57,7 @@ const apiLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 
-// Serve static frontend
+// Serve static frontend (public folder)
 app.use(express.static(PUBLIC_DIR));
 
 // Allowed file extensions
@@ -173,7 +173,7 @@ app.post('/api/upload', (req, res) => {
       const buffer = Buffer.from(fileData, 'base64');
 
       if (ext === '.zip') {
-        // Extract ZIP file - FIXED: overwrite false prevents path issues
+        // Extract ZIP file
         try {
           const zip = new AdmZip(buffer);
           const zipEntries = zip.getEntries();
@@ -186,7 +186,7 @@ app.post('/api/upload', (req, res) => {
             }
           }
 
-          // Extract all files - overwrite set to true
+          // Extract all files
           zip.extractAllTo(siteDir, true);
           
         } catch (zipError) {
@@ -238,6 +238,10 @@ function handleSiteView(req, res) {
   const sanitizedSlug = sanitize(slug);
   const siteDir = path.join(SITES_DIR, sanitizedSlug);
 
+  console.log('Viewing site:', sanitizedSlug);
+  console.log('Site directory:', siteDir);
+  console.log('Directory exists:', fs.existsSync(siteDir));
+
   if (!fs.existsSync(siteDir)) {
     return res.status(404).send('Site not found');
   }
@@ -263,21 +267,10 @@ function handleSiteView(req, res) {
   res.send(`<h1>Site: ${site.name}</h1><ul>${files.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}</ul>`);
 }
 
+// CRITICAL: Define dynamic routes BEFORE static middleware
 // View site routes - both /view.php?site=slug and /view/:slug work
 app.get('/view.php', handleSiteView);
 app.get('/view/:slug', handleSiteView);
-
-// CRITICAL FIX: Serve each site's static files (CSS, JS, images) with correct MIME types
-app.use('/sites/:slug', (req, res, next) => {
-  const slug = sanitize(req.params.slug);
-  const siteDir = path.join(SITES_DIR, slug);
-  
-  // Use express.static for each site folder dynamically
-  express.static(siteDir)(req, res, next);
-});
-
-// Fallback: Serve static site files
-app.use('/sites', express.static(SITES_DIR));
 
 // Admin API: Get all sites
 app.get('/api/admin/sites', (req, res) => {
@@ -387,6 +380,10 @@ app.get('/api/admin/site/:slug/download', (req, res) => {
     res.status(500).json({ ok: false, error: error.message });
   }
 });
+
+// IMPORTANT: Static file serving comes AFTER all dynamic routes
+// Serve static files from each site's folder
+app.use('/sites', express.static(SITES_DIR));
 
 // Start server
 app.listen(PORT, () => {
