@@ -3,9 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const Database = require('better-sqlite3');
+const mongoose = require('mongoose');
 const sanitize = require('sanitize-filename');
 const AdmZip = require('adm-zip');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,20 +26,66 @@ if (!fs.existsSync(SITES_DIR)) fs.mkdirSync(SITES_DIR, { recursive: true });
 if (!fs.existsSync(DELETED_DIR)) fs.mkdirSync(DELETED_DIR, { recursive: true });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 
-// Initialize SQLite database
-const db = new Database(path.join(__dirname, 'data.db'));
+// Define Mongoose Schema
+const siteSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  slug: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true
+  },
+  size_bytes: {
+    type: Number,
+    default: 0
+  },
+  status: {
+    type: String,
+    enum: ['active', 'deleted'],
+    default: 'active'
+  },
+  created_at: {
+    type: Date,
+    default: Date.now
+  }
+});
 
-// Create sites table if not exists
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    slug TEXT UNIQUE NOT NULL,
-    size_bytes INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'active',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// Create indexes for better query performance
+siteSchema.index({ slug: 1 });
+siteSchema.index({ status: 1, created_at: -1 });
+
+const Site = mongoose.model('Site', siteSchema);
+
+// Connect to MongoDB Atlas with error handling
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/file-hosting', {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error.message);
+    console.error('⚠️  Make sure MONGODB_URI is set in .env file');
+    process.exit(1);
+  }
+};
+
+// Handle MongoDB connection events
+mongoose.connection.on('disconnected', () => {
+  console.log('⚠️  MongoDB disconnected');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB error:', err);
+});
+
+// Initialize connection
+connectDB();
 
 // Middleware
 app.use(helmet({
@@ -182,34 +229,53 @@ function formatUptime(milliseconds) {
 }
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  const uptime = Date.now() - SERVER_START_TIME;
-  const totalSites = db.prepare('SELECT COUNT(*) as count FROM sites WHERE status = ?').get('active').count;
-  const totalStorage = db.prepare('SELECT SUM(size_bytes) as total FROM sites WHERE status = ?').get('active').total || 0;
+app.get('/health', async (req, res) => {
+  try {
+    const uptime = Date.now() - SERVER_START_TIME;
+    const totalSites = await Site.countDocuments({ status: 'active' });
+    
+    const result = await Site.aggregate([
+      { $match: { status: 'active' } },
+      { $group: { _id: null, total: { $sum: '$size_bytes' } } }
+    ]);
+    
+    const totalStorage = result.length > 0 ? result[0].total : 0;
 
-  res.json({
-    status: 'ok',
-    uptime: formatUptime(uptime),
-    uptimeMs: uptime,
-    timestamp: new Date().toISOString(),
-    server: {
-      platform: process.platform,
-      nodeVersion: process.version,
-      memory: {
-        used: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
-        total: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`
+    res.json({
+      status: 'ok',
+      uptime: formatUptime(uptime),
+      uptimeMs: uptime,
+      timestamp: new Date().toISOString(),
+      server: {
+        platform: process.platform,
+        nodeVersion: process.version,
+        memory: {
+          used: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
+          total: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`
+        }
+      },
+      database: {
+        type: 'MongoDB Atlas',
+        connected: mongoose.connection.readyState === 1,
+        totalSites,
+        totalStorage: `${(totalStorage / 1024 / 1024).toFixed(2)} MB`,
+        storageBytes: totalStorage
       }
-    },
-    database: {
-      totalSites,
-      totalStorage: `${(totalStorage / 1024 / 1024).toFixed(2)} MB`,
-      storageBytes: totalStorage
-    }
-  });
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      error: error.message,
+      database: {
+        connected: mongoose.connection.readyState === 1
+      }
+    });
+  }
 });
 
 // API: Upload site (supports single file, multiple files, or ZIP)
-app.post('/api/upload', (req, res) => {
+app.post('/api/upload', async (req, res) => {
   try {
     if (!req.body.siteName) {
       return res.status(400).json({ ok: false, error: 'Missing siteName' });
@@ -225,7 +291,7 @@ app.post('/api/upload', (req, res) => {
     }
 
     // Check if slug already exists
-    const existing = db.prepare('SELECT * FROM sites WHERE slug = ?').get(slug);
+    const existing = await Site.findOne({ slug });
     if (existing) {
       return res.status(409).json({ ok: false, error: 'Site with this name already exists' });
     }
@@ -307,9 +373,15 @@ app.post('/api/upload', (req, res) => {
     // Calculate folder size
     const sizeBytes = getFolderSize(siteDir);
 
-    // Insert into database
-    const insert = db.prepare('INSERT INTO sites (name, slug, size_bytes, status) VALUES (?, ?, ?, ?)');
-    insert.run(siteName, slug, sizeBytes, 'active');
+    // Insert into MongoDB
+    const newSite = new Site({
+      name: siteName,
+      slug,
+      size_bytes: sizeBytes,
+      status: 'active'
+    });
+
+    await newSite.save();
 
     const url = `${req.protocol}://${req.get('host')}/view/${slug}`;
 
@@ -327,59 +399,68 @@ app.post('/api/upload', (req, res) => {
 });
 
 // View site handler - FIXED to handle nested folders
-function handleSiteView(req, res) {
-  const slug = req.params.slug || req.query.site;
-  
-  if (!slug) {
-    return res.status(400).send('Missing site parameter');
+async function handleSiteView(req, res) {
+  try {
+    const slug = req.params.slug || req.query.site;
+    
+    if (!slug) {
+      return res.status(400).send('Missing site parameter');
+    }
+
+    const sanitizedSlug = sanitize(slug);
+    const siteDir = path.join(SITES_DIR, sanitizedSlug);
+
+    if (!fs.existsSync(siteDir)) {
+      return res.status(404).send('Site not found');
+    }
+
+    // Check if site is active
+    const site = await Site.findOne({ slug: sanitizedSlug, status: 'active' });
+    if (!site) {
+      return res.status(404).send('Site not found or deleted');
+    }
+
+    // Try to find index.html (even in nested folders)
+    const indexPath = findIndexHtml(siteDir);
+    
+    if (indexPath && fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+
+    // If no index.html found, list files
+    const files = fs.readdirSync(siteDir);
+    
+    // If single item and it's a directory, serve its contents
+    if (files.length === 1 && fs.lstatSync(path.join(siteDir, files[0])).isDirectory()) {
+      return res.redirect(`/sites/${sanitizedSlug}/${files[0]}/`);
+    }
+
+    res.send(`
+      <h1>Site: ${site.name}</h1>
+      <p>Files in this site:</p>
+      <ul>
+        ${files.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}
+      </ul>
+    `);
+  } catch (error) {
+    console.error('View site error:', error);
+    res.status(500).send('Internal server error');
   }
-
-  const sanitizedSlug = sanitize(slug);
-  const siteDir = path.join(SITES_DIR, sanitizedSlug);
-
-  if (!fs.existsSync(siteDir)) {
-    return res.status(404).send('Site not found');
-  }
-
-  // Check if site is active
-  const site = db.prepare('SELECT * FROM sites WHERE slug = ? AND status = ?').get(sanitizedSlug, 'active');
-  if (!site) {
-    return res.status(404).send('Site not found or deleted');
-  }
-
-  // Try to find index.html (even in nested folders)
-  const indexPath = findIndexHtml(siteDir);
-  
-  if (indexPath && fs.existsSync(indexPath)) {
-    return res.sendFile(indexPath);
-  }
-
-  // If no index.html found, list files
-  const files = fs.readdirSync(siteDir);
-  
-  // If single item and it's a directory, serve its contents
-  if (files.length === 1 && fs.lstatSync(path.join(siteDir, files[0])).isDirectory()) {
-    const subDir = path.join(siteDir, files[0]);
-    return res.redirect(`/sites/${sanitizedSlug}/${files[0]}/`);
-  }
-
-  res.send(`
-    <h1>Site: ${site.name}</h1>
-    <p>Files in this site:</p>
-    <ul>
-      ${files.map(f => `<li><a href="/sites/${sanitizedSlug}/${f}">${f}</a></li>`).join('')}
-    </ul>
-  `);
 }
 
 // Debug route
-app.get('/debug/sites', (req, res) => {
-  const allSites = db.prepare('SELECT * FROM sites').all();
-  res.json({ 
-    ok: true, 
-    totalSites: allSites.length,
-    sites: allSites 
-  });
+app.get('/debug/sites', async (req, res) => {
+  try {
+    const allSites = await Site.find({});
+    res.json({ 
+      ok: true, 
+      totalSites: allSites.length,
+      sites: allSites 
+    });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
 // View site routes
@@ -387,22 +468,23 @@ app.get('/view.php', handleSiteView);
 app.get('/view/:slug', handleSiteView);
 
 // Admin API: Get all sites
-app.get('/api/admin/sites', (req, res) => {
+app.get('/api/admin/sites', async (req, res) => {
   try {
-    const sites = db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all();
+    const sites = await Site.find({}).sort({ created_at: -1 });
     res.json({ ok: true, sites });
   } catch (error) {
+    console.error('Get sites error:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
 // Admin API: Delete site
-app.post('/api/admin/site/:slug/delete', (req, res) => {
+app.post('/api/admin/site/:slug/delete', async (req, res) => {
   try {
     const { slug } = req.params;
     const sanitizedSlug = sanitize(slug);
 
-    const site = db.prepare('SELECT * FROM sites WHERE slug = ?').get(sanitizedSlug);
+    const site = await Site.findOne({ slug: sanitizedSlug });
     if (!site) {
       return res.status(404).json({ ok: false, error: 'Site not found' });
     }
@@ -414,21 +496,23 @@ app.post('/api/admin/site/:slug/delete', (req, res) => {
       moveFolder(sourceDir, destDir);
     }
 
-    db.prepare('UPDATE sites SET status = ? WHERE slug = ?').run('deleted', sanitizedSlug);
+    site.status = 'deleted';
+    await site.save();
 
     res.json({ ok: true, message: 'Site deleted successfully' });
   } catch (error) {
+    console.error('Delete site error:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
 // Admin API: Restore site
-app.post('/api/admin/site/:slug/restore', (req, res) => {
+app.post('/api/admin/site/:slug/restore', async (req, res) => {
   try {
     const { slug } = req.params;
     const sanitizedSlug = sanitize(slug);
 
-    const site = db.prepare('SELECT * FROM sites WHERE slug = ?').get(sanitizedSlug);
+    const site = await Site.findOne({ slug: sanitizedSlug });
     if (!site) {
       return res.status(404).json({ ok: false, error: 'Site not found' });
     }
@@ -440,19 +524,27 @@ app.post('/api/admin/site/:slug/restore', (req, res) => {
       moveFolder(sourceDir, destDir);
     }
 
-    db.prepare('UPDATE sites SET status = ? WHERE slug = ?').run('active', sanitizedSlug);
+    site.status = 'active';
+    await site.save();
 
     res.json({ ok: true, message: 'Site restored successfully' });
   } catch (error) {
+    console.error('Restore site error:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
 // Admin API: Get usage stats
-app.get('/api/admin/usage', (req, res) => {
+app.get('/api/admin/usage', async (req, res) => {
   try {
-    const totalSites = db.prepare('SELECT COUNT(*) as count FROM sites WHERE status = ?').get('active').count;
-    const totalStorage = db.prepare('SELECT SUM(size_bytes) as total FROM sites WHERE status = ?').get('active').total || 0;
+    const totalSites = await Site.countDocuments({ status: 'active' });
+    
+    const result = await Site.aggregate([
+      { $match: { status: 'active' } },
+      { $group: { _id: null, total: { $sum: '$size_bytes' } } }
+    ]);
+    
+    const totalStorage = result.length > 0 ? result[0].total : 0;
 
     res.json({
       ok: true,
@@ -461,17 +553,18 @@ app.get('/api/admin/usage', (req, res) => {
       totalStorageFormatted: `${(totalStorage / 1024 / 1024).toFixed(2)} MB`
     });
   } catch (error) {
+    console.error('Usage stats error:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
 // Admin API: Download site as ZIP
-app.get('/api/admin/site/:slug/download', (req, res) => {
+app.get('/api/admin/site/:slug/download', async (req, res) => {
   try {
     const { slug } = req.params;
     const sanitizedSlug = sanitize(slug);
 
-    const site = db.prepare('SELECT * FROM sites WHERE slug = ?').get(sanitizedSlug);
+    const site = await Site.findOne({ slug: sanitizedSlug });
     if (!site) {
       return res.status(404).json({ ok: false, error: 'Site not found' });
     }
@@ -491,6 +584,7 @@ app.get('/api/admin/site/:slug/download', (req, res) => {
     res.send(zipBuffer);
 
   } catch (error) {
+    console.error('Download site error:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -500,8 +594,8 @@ app.use('/sites', express.static(SITES_DIR));
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Public URL: http://localhost:${PORT}`);
-  console.log(`Admin panel: http://localhost:${PORT}/admin.html`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🌐 Public URL: http://localhost:${PORT}`);
+  console.log(`🛠️  Admin panel: http://localhost:${PORT}/admin.html`);
+  console.log(`❤️  Health check: http://localhost:${PORT}/health`);
 });
