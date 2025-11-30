@@ -6,6 +6,8 @@ const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
 const sanitize = require('sanitize-filename');
 const AdmZip = require('adm-zip');
+const { Telegraf } = require('telegraf');
+const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
@@ -17,6 +19,15 @@ const SERVER_START_TIME = Date.now();
 // Trust proxy - Required for Render deployment
 app.set('trust proxy', 1);
 
+// Initialize Telegram Bot (only if credentials provided)
+let bot = null;
+const BACKUP_CHANNEL_ID = process.env.BACKUP_CHANNEL_ID;
+
+if (process.env.BOT_TOKEN && BACKUP_CHANNEL_ID) {
+  bot = new Telegraf(process.env.BOT_TOKEN);
+  console.log('📡 Telegram bot initialized');
+}
+
 // Ensure required directories exist
 const SITES_DIR = path.join(__dirname, 'sites');
 const DELETED_DIR = path.join(SITES_DIR, '.deleted');
@@ -26,7 +37,7 @@ if (!fs.existsSync(SITES_DIR)) fs.mkdirSync(SITES_DIR, { recursive: true });
 if (!fs.existsSync(DELETED_DIR)) fs.mkdirSync(DELETED_DIR, { recursive: true });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 
-// Define Mongoose Schema
+// Define Mongoose Schema with Telegram backup fields
 const siteSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -47,6 +58,19 @@ const siteSchema = new mongoose.Schema({
     type: String,
     enum: ['active', 'deleted'],
     default: 'active'
+  },
+  telegram_file_id: {
+    type: String,
+    default: null
+  },
+  telegram_message_id: {
+    type: Number,
+    default: null
+  },
+  backup_status: {
+    type: String,
+    enum: ['none', 'pending', 'completed', 'failed'],
+    default: 'none'
   },
   created_at: {
     type: Date,
@@ -82,6 +106,143 @@ mongoose.connection.on('error', (err) => {
 
 // Initialize connection
 connectDB();
+
+// Telegram Helper: Backup site to Telegram
+async function backupToTelegram(slug, siteDir) {
+  if (!bot || !BACKUP_CHANNEL_ID) {
+    return { success: false, error: 'Telegram not configured' };
+  }
+
+  try {
+    console.log(`📤 Backing up ${slug} to Telegram...`);
+    
+    const zip = new AdmZip();
+    zip.addLocalFolder(siteDir);
+    const zipBuffer = zip.toBuffer();
+    
+    // Check file size (50MB limit for standard Telegram Bot API)
+    const sizeMB = zipBuffer.length / (1024 * 1024);
+    if (sizeMB > 50) {
+      console.warn(`⚠️  File ${slug} is ${sizeMB.toFixed(2)}MB (exceeds 50MB limit)`);
+      return { success: false, error: 'File too large for Telegram backup (max 50MB)' };
+    }
+    
+    // Send to Telegram channel
+    const message = await bot.telegram.sendDocument(
+      BACKUP_CHANNEL_ID,
+      {
+        source: zipBuffer,
+        filename: `${slug}.zip`
+      },
+      {
+        caption: `🗂️ Backup: ${slug}\n📦 Size: ${sizeMB.toFixed(2)} MB\n📅 Date: ${new Date().toISOString()}\n🔗 Slug: ${slug}`
+      }
+    );
+    
+    console.log(`✅ Backed up ${slug} to Telegram (Message ID: ${message.message_id})`);
+    
+    return {
+      success: true,
+      file_id: message.document.file_id,
+      message_id: message.message_id
+    };
+  } catch (error) {
+    console.error(`❌ Telegram backup error for ${slug}:`, error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// Telegram Helper: Restore site from Telegram
+async function restoreFromTelegram(slug, fileId, targetDir) {
+  if (!bot) {
+    return { success: false, error: 'Telegram not configured' };
+  }
+
+  try {
+    console.log(`📥 Restoring ${slug} from Telegram...`);
+    
+    // Get file info from Telegram
+    const file = await bot.telegram.getFile(fileId);
+    const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
+    
+    // Download file from Telegram
+    const response = await axios({
+      method: 'GET',
+      url: fileUrl,
+      responseType: 'arraybuffer'
+    });
+    
+    const buffer = Buffer.from(response.data);
+    
+    // Extract ZIP
+    const zip = new AdmZip(buffer);
+    
+    // Ensure target directory exists
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    
+    zip.extractAllTo(targetDir, true);
+    
+    console.log(`✅ Restored ${slug} from Telegram`);
+    return { success: true };
+  } catch (error) {
+    console.error(`❌ Telegram restore error for ${slug}:`, error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// Restore all sites from Telegram on server start
+async function restoreAllSitesFromTelegram() {
+  if (!bot || !BACKUP_CHANNEL_ID) {
+    console.log('⚠️  Telegram backup disabled (set BOT_TOKEN and BACKUP_CHANNEL_ID in .env)');
+    return;
+  }
+
+  try {
+    const sites = await Site.find({ 
+      status: 'active', 
+      telegram_file_id: { $ne: null } 
+    });
+    
+    if (sites.length === 0) {
+      console.log('📂 No sites to restore from Telegram');
+      return;
+    }
+    
+    console.log(`🔄 Restoring ${sites.length} sites from Telegram backup...`);
+    
+    let restored = 0;
+    let skipped = 0;
+    let failed = 0;
+    
+    for (const site of sites) {
+      const siteDir = path.join(SITES_DIR, site.slug);
+      
+      // Skip if directory already exists with files
+      if (fs.existsSync(siteDir) && fs.readdirSync(siteDir).length > 0) {
+        console.log(`⏭️  Skipping ${site.slug} (already exists)`);
+        skipped++;
+        continue;
+      }
+      
+      const result = await restoreFromTelegram(site.slug, site.telegram_file_id, siteDir);
+      
+      if (result.success) {
+        restored++;
+      } else {
+        failed++;
+      }
+      
+      // Small delay to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    console.log(`✅ Restoration complete: ${restored} restored, ${skipped} skipped, ${failed} failed`);
+  } catch (error) {
+    console.error('❌ Restore all error:', error);
+  }
+}
 
 // Middleware
 app.use(helmet({
@@ -236,6 +397,12 @@ app.get('/health', async (req, res) => {
     ]);
     
     const totalStorage = result.length > 0 ? result[0].total : 0;
+    
+    // Get backup statistics
+    const backedUpSites = await Site.countDocuments({ 
+      status: 'active', 
+      backup_status: 'completed' 
+    });
 
     res.json({
       status: 'ok',
@@ -256,6 +423,11 @@ app.get('/health', async (req, res) => {
         totalSites,
         totalStorage: `${(totalStorage / 1024 / 1024).toFixed(2)} MB`,
         storageBytes: totalStorage
+      },
+      telegram: {
+        enabled: !!bot && !!BACKUP_CHANNEL_ID,
+        backedUpSites,
+        backupPercentage: totalSites > 0 ? ((backedUpSites / totalSites) * 100).toFixed(1) + '%' : '0%'
       }
     });
   } catch (error) {
@@ -270,7 +442,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// API: Upload site (supports single file, multiple files, or ZIP)
+// API: Upload site (supports single file, multiple files, or ZIP) with Telegram backup
 app.post('/api/upload', async (req, res) => {
   try {
     if (!req.body.siteName) {
@@ -369,12 +541,21 @@ app.post('/api/upload', async (req, res) => {
     // Calculate folder size
     const sizeBytes = getFolderSize(siteDir);
 
+    // Backup to Telegram (if configured)
+    let backupResult = { success: false, error: 'Telegram not configured' };
+    if (bot && BACKUP_CHANNEL_ID) {
+      backupResult = await backupToTelegram(slug, siteDir);
+    }
+
     // Insert into MongoDB
     const newSite = new Site({
       name: siteName,
       slug,
       size_bytes: sizeBytes,
-      status: 'active'
+      status: 'active',
+      telegram_file_id: backupResult.file_id || null,
+      telegram_message_id: backupResult.message_id || null,
+      backup_status: backupResult.success ? 'completed' : (bot && BACKUP_CHANNEL_ID ? 'failed' : 'none')
     });
 
     await newSite.save();
@@ -385,7 +566,8 @@ app.post('/api/upload', async (req, res) => {
       ok: true,
       url,
       slug,
-      message: 'Site uploaded successfully'
+      message: 'Site uploaded successfully',
+      backup: backupResult.success ? 'completed' : (bot && BACKUP_CHANNEL_ID ? 'failed' : 'disabled')
     });
 
   } catch (error) {
@@ -394,7 +576,7 @@ app.post('/api/upload', async (req, res) => {
   }
 });
 
-// View site handler - FIXED to handle nested folders
+// View site handler - FIXED to handle nested folders and auto-restore from Telegram
 async function handleSiteView(req, res) {
   try {
     const slug = req.params.slug || req.query.site;
@@ -406,14 +588,20 @@ async function handleSiteView(req, res) {
     const sanitizedSlug = sanitize(slug);
     const siteDir = path.join(SITES_DIR, sanitizedSlug);
 
-    if (!fs.existsSync(siteDir)) {
-      return res.status(404).send('Site not found');
-    }
-
     // Check if site is active
     const site = await Site.findOne({ slug: sanitizedSlug, status: 'active' });
     if (!site) {
       return res.status(404).send('Site not found or deleted');
+    }
+
+    // If directory doesn't exist but we have Telegram backup, restore it
+    if (!fs.existsSync(siteDir) && site.telegram_file_id && bot) {
+      console.log(`🔄 Directory missing for ${sanitizedSlug}, restoring from Telegram...`);
+      await restoreFromTelegram(sanitizedSlug, site.telegram_file_id, siteDir);
+    }
+
+    if (!fs.existsSync(siteDir)) {
+      return res.status(404).send('Site files not found and backup unavailable');
     }
 
     // Try to find index.html (even in nested folders)
@@ -495,7 +683,8 @@ app.post('/api/admin/site/:slug/delete', async (req, res) => {
     site.status = 'deleted';
     await site.save();
 
-    res.json({ ok: true, message: 'Site deleted successfully' });
+    const backupNote = site.telegram_file_id ? ' (backup preserved in Telegram)' : '';
+    res.json({ ok: true, message: `Site deleted successfully${backupNote}` });
   } catch (error) {
     console.error('Delete site error:', error);
     res.status(500).json({ ok: false, error: error.message });
@@ -516,8 +705,17 @@ app.post('/api/admin/site/:slug/restore', async (req, res) => {
     const sourceDir = path.join(DELETED_DIR, sanitizedSlug);
     const destDir = path.join(SITES_DIR, sanitizedSlug);
 
+    // Try to restore from deleted folder first
     if (fs.existsSync(sourceDir)) {
       moveFolder(sourceDir, destDir);
+    } else if (site.telegram_file_id && bot) {
+      // If not in deleted folder, restore from Telegram
+      const result = await restoreFromTelegram(sanitizedSlug, site.telegram_file_id, destDir);
+      if (!result.success) {
+        return res.status(500).json({ ok: false, error: 'Failed to restore from Telegram backup' });
+      }
+    } else {
+      return res.status(404).json({ ok: false, error: 'Site files not found and no backup available' });
     }
 
     site.status = 'active';
@@ -589,9 +787,17 @@ app.get('/api/admin/site/:slug/download', async (req, res) => {
 app.use('/sites', express.static(SITES_DIR));
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`🌐 Public URL: http://localhost:${PORT}`);
   console.log(`🛠️  Admin panel: http://localhost:${PORT}/admin.html`);
   console.log(`❤️  Health check: http://localhost:${PORT}/health`);
+  
+  // Restore sites from Telegram on startup
+  if (bot && BACKUP_CHANNEL_ID) {
+    console.log('📡 Telegram backup enabled');
+    setTimeout(() => restoreAllSitesFromTelegram(), 2000);
+  } else {
+    console.log('⚠️  Telegram backup disabled (set BOT_TOKEN and BACKUP_CHANNEL_ID in .env)');
+  }
 });
