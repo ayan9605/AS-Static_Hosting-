@@ -350,21 +350,53 @@ function isForbiddenExtension(filename) {
   return FORBIDDEN_EXTENSIONS.includes(ext);
 }
 
-// Helper: Find index.html recursively in nested folders
-function findIndexHtml(directory) {
+// Helper: Find all HTML files recursively
+function findAllHtmlFiles(directory, htmlFiles = []) {
   const items = fs.readdirSync(directory);
   
-  // Check current directory
-  if (items.includes('index.html')) {
-    return path.join(directory, 'index.html');
+  for (const item of items) {
+    const itemPath = path.join(directory, item);
+    const stats = fs.lstatSync(itemPath);
+    
+    if (stats.isDirectory()) {
+      findAllHtmlFiles(itemPath, htmlFiles);
+    } else if (path.extname(item).toLowerCase() === '.html') {
+      htmlFiles.push(itemPath);
+    }
   }
   
-  // If only one item and it's a directory, check inside
-  if (items.length === 1 && fs.lstatSync(path.join(directory, items[0])).isDirectory()) {
-    return findIndexHtml(path.join(directory, items[0]));
+  return htmlFiles;
+}
+
+// Helper: Find HTML entry point (index.html or single HTML file)
+function findHtmlEntryPoint(directory) {
+  // First, get all HTML files in the directory
+  const allHtmlFiles = findAllHtmlFiles(directory);
+  
+  // If no HTML files found
+  if (allHtmlFiles.length === 0) {
+    return null;
   }
   
-  return null;
+  // If only ONE HTML file exists, use it regardless of name
+  if (allHtmlFiles.length === 1) {
+    console.log(`📄 Found single HTML file: ${path.basename(allHtmlFiles[0])}`);
+    return allHtmlFiles[0];
+  }
+  
+  // If MULTIPLE HTML files exist, search for index.html specifically
+  const indexPath = allHtmlFiles.find(file => 
+    path.basename(file).toLowerCase() === 'index.html'
+  );
+  
+  if (indexPath) {
+    console.log(`📄 Found index.html among ${allHtmlFiles.length} HTML files`);
+    return indexPath;
+  }
+  
+  // If multiple HTML files but no index.html, return the first one found
+  console.log(`⚠️  Multiple HTML files found but no index.html, using: ${path.basename(allHtmlFiles[0])}`);
+  return allHtmlFiles[0];
 }
 
 // Helper: Format uptime
@@ -604,14 +636,14 @@ async function handleSiteView(req, res) {
       return res.status(404).send('Site files not found and backup unavailable');
     }
 
-    // Try to find index.html (even in nested folders)
-    const indexPath = findIndexHtml(siteDir);
+    // Try to find HTML entry point (index.html or single HTML file)
+    const indexPath = findHtmlEntryPoint(siteDir);
     
     if (indexPath && fs.existsSync(indexPath)) {
       return res.sendFile(indexPath);
     }
 
-    // If no index.html found, list files
+    // If no HTML found, list files
     const files = fs.readdirSync(siteDir);
     
     // If single item and it's a directory, serve its contents
