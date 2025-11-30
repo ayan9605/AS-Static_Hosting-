@@ -1,21 +1,37 @@
 {
   "name": "static-site-hosting",
   "version": "1.0.0",
-  "description": "Static site hosting platform with SQLite database",
+  "description": "Static site hosting platform with MongoDB Atlas database",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "init-db": "node scripts/init-db.js"
+    "dev": "nodemon server.js",
+    "migrate": "node scripts/migrate.js"
   },
-  "keywords": ["static", "hosting", "express", "sqlite"],
+  "keywords": [
+    "static",
+    "hosting",
+    "express",
+    "mongodb",
+    "mongoose",
+    "file-hosting"
+  ],
   "author": "Ayan Sayyad",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "better-sqlite3": "^9.2.0",
+    "mongoose": "^8.20.0",
+    "dotenv": "^16.4.5",
     "sanitize-filename": "^1.6.3",
     "helmet": "^7.1.0",
-    "express-rate-limit": "^7.1.5",
+    "express-rate-limit": "^8.1.0",
     "adm-zip": "^0.5.10"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
   }
 }
