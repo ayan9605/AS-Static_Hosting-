@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Documentation - Static Site Hosting</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: #f5f7fa;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 3rem 2rem;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .header h1 {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .header p {
+      font-size: 1.1rem;
+      opacity: 0.9;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .nav {
+      background: white;
+      padding: 1rem 2rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      gap: 2rem;
+      overflow-x: auto;
+    }
+
+    .nav a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 500;
+      white-space: nowrap;
+      padding: 0.5rem 0;
+      border-bottom: 2px solid transparent;
+      transition: all 0.3s;
+    }
+
+    .nav a:hover {
+      color: #764ba2;
+      border-bottom-color: #764ba2;
+    }
+
+    .section {
+      background: white;
+      margin: 2rem 0;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+
+    .section h2 {
+      color: #667eea;
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    .section h3 {
+      color: #4a5568;
+      font-size: 1.5rem;
+      margin: 1.5rem 0 1rem;
+    }
+
+    .endpoint {
+      background: #f9fafb;
+      border-left: 4px solid #667eea;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      border-radius: 8px;
+    }
+
+    .method {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 0.875rem;
+      margin-right: 0.5rem;
+    }
+
+    .method.get { background: #10b981; color: white; }
+    .method.post { background: #3b82f6; color: white; }
+    .method.put { background: #f59e0b; color: white; }
+    .method.delete { background: #ef4444; color: white; }
+
+    .endpoint-url {
+      font-family: 'Courier New', monospace;
+      font-size: 1.1rem;
+      color: #1f2937;
+    }
+
+    .code-block {
+      background: #1f2937;
+      border-radius: 8px;
+      padding: 1rem;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+
+    .code-block pre {
+      margin: 0;
+    }
+
+    .code-block code {
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    .tab {
+      padding: 0.75rem 1.5rem;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      color: #6b7280;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.3s;
+    }
+
+    .tab.active {
+      color: #667eea;
+      border-bottom-color: #667eea;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .param-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+
+    .param-table th,
+    .param-table td {
+      text-align: left;
+      padding: 0.75rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .param-table th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .badge.required { background: #fee2e2; color: #dc2626; }
+    .badge.optional { background: #e0e7ff; color: #4f46e5; }
+
+    .response-code {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-weight: 600;
+      margin-right: 0.5rem;
+    }
+
+    .response-code.success { background: #d1fae5; color: #065f46; }
+    .response-code.error { background: #fee2e2; color: #991b1b; }
+
+    .info-box {
+      background: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+    }
+
+    .warning-box {
+      background: #fffbeb;
+      border-left: 4px solid #f59e0b;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+    }
+
+    .success-box {
+      background: #d1fae5;
+      border-left: 4px solid #10b981;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: background 0.3s;
+    }
+
+    .copy-btn:hover {
+      background: #764ba2;
+    }
+
+    .code-container {
+      position: relative;
+    }
+
+    @media (max-width: 768px) {
+      .header h1 {
+        font-size: 1.75rem;
+      }
+      
+      .container {
+        padding: 1rem;
+      }
+      
+      .section {
+        padding: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="container">
+      <h1>📚 API Documentation</h1>
+      <p>Static Site Hosting Platform with MongoDB Atlas & Telegram Backup</p>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a href="#overview">Overview</a>
+    <a href="#getting-started">Getting Started</a>
+    <a href="#authentication">Authentication</a>
+    <a href="#endpoints">Endpoints</a>
+    <a href="#errors">Error Codes</a>
+    <a href="#examples">Examples</a>
+  </nav>
+
+  <div class="container">
+    <!-- Overview Section -->
+    <section id="overview" class="section">
+      <h2>📖 Overview</h2>
+      <p>Welcome to the Static Site Hosting API documentation. This API allows you to upload, manage, and host static websites with automatic backup to Telegram.</p>
+      
+      <h3>Base URL</h3>
+      <div class="code-block">
+        <code id="base-url">Loading...</code>
+      </div>
+
+      <h3>Features</h3>
+      <ul style="margin-left: 2rem; margin-top: 1rem;">
+        <li>✅ Upload ZIP files or individual HTML/CSS/JS files</li>
+        <li>✅ Automatic Telegram backup (optional)</li>
+        <li>✅ MongoDB Atlas for metadata storage</li>
+        <li>✅ Auto-restore on server restart</li>
+        <li>✅ Site management (delete, restore, download)</li>
+        <li>✅ Health monitoring and usage stats</li>
+      </ul>
+    </section>
+
+    <!-- Getting Started Section -->
+    <section id="getting-started" class="section">
+      <h2>🚀 Getting Started</h2>
+      
+      <h3>Quick Start</h3>
+      <p>Follow these steps to upload your first static site:</p>
+      
+      <ol style="margin-left: 2rem; margin-top: 1rem; line-height: 2;">
+        <li>Prepare your static files (HTML, CSS, JS, images)</li>
+        <li>Create a ZIP file or prepare base64-encoded files</li>
+        <li>Send a POST request to <code>/api/upload</code></li>
+        <li>Access your site at <code>/view/{slug}</code></li>
+      </ol>
+
+      <div class="info-box">
+        <strong>💡 Tip:</strong> Your site must include an <code>index.html</code> file as the entry point.
+      </div>
+    </section>
+
+    <!-- Authentication Section -->
+    <section id="authentication" class="section">
+      <h2>🔐 Authentication</h2>
+      <p>Currently, this API does not require authentication. All endpoints are publicly accessible.</p>
+      
+      <div class="warning-box">
+        <strong>⚠️ Important:</strong> Consider implementing authentication for production use to prevent unauthorized access.
+      </div>
+    </section>
+
+    <!-- Endpoints Section -->
+    <section id="endpoints" class="section">
+      <h2>🔌 API Endpoints</h2>
+
+      <!-- Health Check -->
+      <div class="endpoint">
+        <div>
+          <span class="method get">GET</span>
+          <span class="endpoint-url">/health</span>
+        </div>
+        <p style="margin-top: 1rem;">Check API health and get server statistics.</p>
+
+        <h4 style="margin-top: 1.5rem;">Response</h4>
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab(event, 'health-response')">Response</button>
+        </div>
+        <div id="health-response" class="tab-content active">
+          <div class="code-container">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <div class="code-block">
+              <pre><code class="language-json">{
+  "status": "ok",
+  "uptime": "2h 15m 30s",
+  "uptimeMs": 8130000,
+  "timestamp": "2025-11-30T10:30:00.000Z",
+  "server": {
+    "platform": "linux",
+    "nodeVersion": "v18.17.0",
+    "memory": {
+      "used": "45.23 MB",
+      "total": "67.89 MB"
+    }
+  },
+  "database": {
+    "type": "MongoDB Atlas",
+    "connected": true,
+    "totalSites": 5,
+    "totalStorage": "12.45 MB",
+    "storageBytes": 13056000
+  },
+  "telegram": {
+    "enabled": true,
+    "backedUpSites": 5,
+    "backupPercentage": "100.0%"
+  }
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload Site -->
+      <div class="endpoint">
+        <div>
+          <span class="method post">POST</span>
+          <span class="endpoint-url">/api/upload</span>
+        </div>
+        <p style="margin-top: 1rem;">Upload a static site from ZIP file or individual files.</p>
+
+        <h4 style="margin-top: 1.5rem;">Request Body</h4>
+        <table class="param-table">
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>Type</th>
+              <th>Required</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>siteName</code></td>
+              <td>string</td>
+              <td><span class="badge required">Required</span></td>
+              <td>Name of your site (will be converted to slug)</td>
+            </tr>
+            <tr>
+              <td><code>files</code></td>
+              <td>array</td>
+              <td><span class="badge required">Required</span></td>
+              <td>Array of file objects</td>
+            </tr>
+            <tr>
+              <td><code>files[].fileName</code></td>
+              <td>string</td>
+              <td><span class="badge required">Required</span></td>
+              <td>Name of the file</td>
+            </tr>
+            <tr>
+              <td><code>files[].fileData</code></td>
+              <td>string</td>
+              <td><span class="badge required">Required</span></td>
+              <td>Base64 encoded file content</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 style="margin-top: 1.5rem;">Example Request</h4>
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab(event, 'upload-js')">JavaScript</button>
+          <button class="tab" onclick="switchTab(event, 'upload-curl')">cURL</button>
+          <button class="tab" onclick="switchTab(event, 'upload-python')">Python</button>
+        </div>
+        
+        <div id="upload-js" class="tab-content active">
+          <div class="code-container">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <div class="code-block">
+              <pre><code class="language-javascript">const fs = require('fs');
+
+// Read and encode file
+const fileContent = fs.readFileSync('site.zip');
+const base64Content = fileContent.toString('base64');
+
+const response = await fetch('<span class="api-url"></span>/api/upload', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    siteName: 'My Awesome Site',
+    files: [{
+      fileName: 'site.zip',
+      fileData: base64Content
+    }]
+  })
+});
+
+const result = await response.json();
+console.log(result);</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div id="upload-curl" class="tab-content">
+          <div class="code-container">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <div class="code-block">
+              <pre><code class="language-bash">curl -X POST <span class="api-url"></span>/api/upload \
+  -H "Content-Type: application/json" \
+  -d '{
+    "siteName": "My Awesome Site",
+    "files": [{
+      "fileName": "site.zip",
+      "fileData": "UEsDBBQAAAAIAH..."
+    }]
+  }'</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div id="upload-python" class="tab-content">
+          <div class="code-container">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <div class="code-block">
+              <pre><code class="language-python">import requests
+import base64
+
+# Read and encode file
+with open('site.zip', 'rb') as f:
+    file_content = base64.b64encode(f.read()).decode('utf-8')
+
+response = requests.post(
+    '<span class="api-url"></span>/api/upload',
+    json={
+        'siteName': 'My Awesome Site',
+        'files': [{
+            'fileName': 'site.zip',
+            'fileData': file_content
+        }]
+    }
+)
+
+print(response.json())</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 1.5rem;">Response</h4>
+        <div class="code-container">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <div class="code-block">
+            <pre><code class="language-json">{
+  "ok": true,
+  "url": "<span class="api-url"></span>/view/my-awesome-site",
+  "slug": "my-awesome-site",
+  "message": "Site uploaded successfully",
+  "backup": "completed"
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Get All Sites -->
+      <div class="endpoint">
+        <div>
+          <span class="method get">GET</span>
+          <span class="endpoint-url">/api/admin/sites</span>
+        </div>
+        <p style="margin-top: 1rem;">Get a list of all uploaded sites.</p>
+
+        <h4 style="margin-top: 1.5rem;">Example Request</h4>
+        <div class="code-container">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <div class="code-block">
+            <pre><code class="language-javascript">const response = await fetch('<span class="api-url"></span>/api/admin/sites');
+const data = await response.json();
+console.log(data);</code></pre>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 1.5rem;">Response</h4>
+        <div class="code-container">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <div class="code-block">
+            <pre><code class="language-json">{
+  "ok": true,
+  "sites": [
+    {
+      "_id": "507f1f77bcf86cd799439011",
+      "name": "My Awesome Site",
+      "slug": "my-awesome-site",
+      "size_bytes": 1048576,
+      "status": "active",
+      "backup_status": "completed",
+      "telegram_file_id": "BQACAgIAAxkBAAIC...",
+      "created_at": "2025-11-30T10:00:00.000Z"
+    }
+  ]
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete Site -->
+      <div class="endpoint">
+        <div>
+          <span class="method post">POST</span>
+          <span class="endpoint-url">/api/admin/site/:slug/delete</span>
+        </div>
+        <p style="margin-top: 1rem;">Delete a site (moves to deleted folder, Telegram backup preserved).</p>
+
+        <h4 style="margin-top: 1.5rem;">URL Parameters</h4>
+        <table class="param-table">
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>Type</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>slug</code></td>
+              <td>string</td>
+              <td>The site slug to delete</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 style="margin-top: 1.5rem;">Example Request</h4>
+        <div class="code-container">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <div class="code-block">
+            <pre><code class="language-javascript">const response = await fetch('<span class="api-url"></span>/api/admin/site/my-awesome-site/delete', {
+  method: 'POST'
+});
+const result = await response.json();
+console.log(result);</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Restore Site -->
+      <div class="endpoint">
+        <div>
+          <span class="method post">POST</span>
+          <span class="endpoint-url">/api/admin/site/:slug/restore</span>
+        </div>
+        <p style="margin-top: 1rem;">Restore a deleted site from deleted folder or Telegram backup.</p>
+
+        <h4 style="margin-top: 1.5rem;">Example Request</h4>
+        <div class="code-container">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <div class="code-block">
+            <pre><code class="language-javascript">const response = await fetch('<span class="api-url"></span>/api/admin/site/my-awesome-site/restore', {
+  method: 'POST'
+});
+const result = await response.json();
+console.log(result);</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Download Site -->
+      <div class="endpoint">
+        <div>
+          <span class="method get">GET</span>
+          <span class="endpoint-url">/api/admin/site/:slug/download</span>
+        </div>
+        <p style="margin-top: 1rem;">Download a site as a ZIP file.</p>
+
+        <h4 style="margin-top: 1.5rem;">Example Request</h4>
+        <div class="code-container">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <div class="code-block">
+            <pre><code class="language-html">&lt;a href="<span class="api-url"></span>/api/admin/site/my-awesome-site/download" download&gt;
+  Download Site
+&lt;/a&gt;</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Get Usage Stats -->
+      <div class="endpoint">
+        <div>
+          <span class="method get">GET</span>
+          <span class="endpoint-url">/api/admin/usage</span>
+        </div>
+        <p style="margin-top: 1rem;">Get storage usage statistics.</p>
+
+        <h4 style="margin-top: 1.5rem;">Response</h4>
+        <div class="code-container">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <div class="code-block">
+            <pre><code class="language-json">{
+  "ok": true,
+  "totalSites": 5,
+  "totalStorage": 13056000,
+  "totalStorageFormatted": "12.45 MB"
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- View Site -->
+      <div class="endpoint">
+        <div>
+          <span class="method get">GET</span>
+          <span class="endpoint-url">/view/:slug</span>
+        </div>
+        <p style="margin-top: 1rem;">View a deployed site.</p>
+
+        <h4 style="margin-top: 1.5rem;">Example</h4>
+        <div class="code-container">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <div class="code-block">
+            <pre><code class="language-html">&lt;!-- Access your site --&gt;
+<span class="api-url"></span>/view/my-awesome-site</code></pre>
+          </div>
+        </div>
+
+        <div class="success-box">
+          <strong>✅ Auto-Restore:</strong> If files are missing, they will be automatically restored from Telegram backup on first access.
+        </div>
+      </div>
+    </section>
+
+    <!-- Error Codes Section -->
+    <section id="errors" class="section">
+      <h2>⚠️ Error Codes</h2>
+      <p>The API uses standard HTTP status codes to indicate success or failure.</p>
+
+      <table class="param-table" style="margin-top: 1.5rem;">
+        <thead>
+          <tr>
+            <th>Status Code</th>
+            <th>Meaning</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="response-code success">200</span></td>
+            <td>OK</td>
+            <td>Request succeeded</td>
+          </tr>
+          <tr>
+            <td><span class="response-code error">400</span></td>
+            <td>Bad Request</td>
+            <td>Invalid request parameters</td>
+          </tr>
+          <tr>
+            <td><span class="response-code error">404</span></td>
+            <td>Not Found</td>
+            <td>Resource not found</td>
+          </tr>
+          <tr>
+            <td><span class="response-code error">409</span></td>
+            <td>Conflict</td>
+            <td>Site with this name already exists</td>
+          </tr>
+          <tr>
+            <td><span class="response-code error">500</span></td>
+            <td>Internal Server Error</td>
+            <td>Server encountered an error</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Error Response Format</h3>
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "ok": false,
+  "error": "Site with this name already exists"
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Examples Section -->
+    <section id="examples" class="section">
+      <h2>💡 Examples</h2>
+
+      <h3>Complete Upload Example (Node.js)</h3>
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <div class="code-block">
+          <pre><code class="language-javascript">const fs = require('fs');
+const path = require('path');
+
+async function uploadSite(siteName, zipFilePath) {
+  // Read ZIP file
+  const fileContent = fs.readFileSync(zipFilePath);
+  const base64Content = fileContent.toString('base64');
+
+  // Upload to API
+  const response = await fetch('<span class="api-url"></span>/api/upload', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      siteName: siteName,
+      files: [{
+        fileName: path.basename(zipFilePath),
+        fileData: base64Content
+      }]
+    })
+  });
+
+  const result = await response.json();
+  
+  if (result.ok) {
+    console.log('✅ Site uploaded successfully!');
+    console.log('🔗 URL:', result.url);
+    console.log('💾 Backup status:', result.backup);
+  } else {
+    console.error('❌ Upload failed:', result.error);
+  }
+  
+  return result;
+}
+
+// Usage
+uploadSite('My Portfolio', './site.zip');</code></pre>
+        </div>
+      </div>
+
+      <h3>Upload Multiple HTML Files</h3>
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <div class="code-block">
+          <pre><code class="language-javascript">const fs = require('fs');
+
+// Read multiple files
+const indexHtml = fs.readFileSync('index.html').toString('base64');
+const styleCss = fs.readFileSync('style.css').toString('base64');
+const scriptJs = fs.readFileSync('script.js').toString('base64');
+
+// Upload
+const response = await fetch('<span class="api-url"></span>/api/upload', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    siteName: 'Multi File Site',
+    files: [
+      { fileName: 'index.html', fileData: indexHtml },
+      { fileName: 'style.css', fileData: styleCss },
+      { fileName: 'script.js', fileData: scriptJs }
+    ]
+  })
+});
+
+const result = await response.json();
+console.log(result);</code></pre>
+        </div>
+      </div>
+
+      <h3>List and Manage Sites</h3>
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <div class="code-block">
+          <pre><code class="language-javascript">// Get all sites
+async function getAllSites() {
+  const response = await fetch('<span class="api-url"></span>/api/admin/sites');
+  const data = await response.json();
+  return data.sites;
+}
+
+// Delete a site
+async function deleteSite(slug) {
+  const response = await fetch(`<span class="api-url"></span>/api/admin/site/${slug}/delete`, {
+    method: 'POST'
+  });
+  return await response.json();
+}
+
+// Restore a site
+async function restoreSite(slug) {
+  const response = await fetch(`<span class="api-url"></span>/api/admin/site/${slug}/restore`, {
+    method: 'POST'
+  });
+  return await response.json();
+}
+
+// Usage
+const sites = await getAllSites();
+console.log('Total sites:', sites.length);
+
+await deleteSite('my-old-site');
+await restoreSite('my-old-site');</code></pre>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <strong>📝 Note:</strong> Make sure your ZIP file contains an <code>index.html</code> in the root or first-level subdirectory.
+      </div>
+    </section>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>
+    // Get current URL and inject into all placeholders
+    const baseUrl = window.location.origin;
+    document.getElementById('base-url').textContent = baseUrl;
+    document.querySelectorAll('.api-url').forEach(el => {
+      el.textContent = baseUrl;
+    });
+
+    // Initialize syntax highlighting
+    hljs.highlightAll();
+
+    // Tab switching
+    function switchTab(event, tabId) {
+      const tabButtons = event.target.parentElement.querySelectorAll('.tab');
+      const tabContents = event.target.parentElement.parentElement.querySelectorAll('.tab-content');
+      
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      tabContents.forEach(content => content.classList.remove('active'));
+      
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    // Copy code functionality
+    function copyCode(button) {
+      const codeBlock = button.nextElementSibling.querySelector('code');
+      const text = codeBlock.textContent;
+      
+      navigator.clipboard.writeText(text).then(() => {
+        const originalText = button.textContent;
+        button.textContent = 'Copied!';
+        button.style.background = '#10b981';
+        
+        setTimeout(() => {
+          button.textContent = originalText;
+          button.style.background = '#667eea';
+        }, 2000);
+      });
+    }
+
+    // Smooth scroll for navigation
+    document.querySelectorAll('.nav a').forEach(anchor => {
+      anchor.addEventListener('click', function(e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  </script>
+</body>
+</html>
