@@ -54,8 +54,7 @@ const siteSchema = new mongoose.Schema({
   }
 });
 
-// Create indexes for better query performance
-siteSchema.index({ slug: 1 });
+// Create compound index only (unique: true already creates index on slug)
 siteSchema.index({ status: 1, created_at: -1 });
 
 const Site = mongoose.model('Site', siteSchema);
@@ -63,10 +62,7 @@ const Site = mongoose.model('Site', siteSchema);
 // Connect to MongoDB Atlas with error handling
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/file-hosting', {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/file-hosting');
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
     console.error('❌ MongoDB connection error:', error.message);
