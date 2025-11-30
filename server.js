@@ -783,6 +783,11 @@ app.get('/api/admin/site/:slug/download', async (req, res) => {
   }
 });
 
+// API Documentation endpoint - serves static docs.html
+app.get('/docs', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'docs.html'));
+});
+
 // Serve static files
 app.use('/sites', express.static(SITES_DIR));
 
@@ -791,6 +796,7 @@ app.listen(PORT, async () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`🌐 Public URL: http://localhost:${PORT}`);
   console.log(`🛠️  Admin panel: http://localhost:${PORT}/admin.html`);
+  console.log(`📚 API Docs: http://localhost:${PORT}/docs`);
   console.log(`❤️  Health check: http://localhost:${PORT}/health`);
   
   // Restore sites from Telegram on startup
